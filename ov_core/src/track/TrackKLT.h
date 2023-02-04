@@ -22,6 +22,7 @@
 #ifndef OV_CORE_TRACK_KLT_H
 #define OV_CORE_TRACK_KLT_H
 
+#include "ORBDescriptor.h"
 #include "TrackBase.h"
 
 namespace ov_core {
@@ -54,7 +55,7 @@ public:
   explicit TrackKLT(std::unordered_map<size_t, std::shared_ptr<CamBase>> cameras, int numfeats, int numaruco, bool stereo,
                     HistogramMethod histmethod, int fast_threshold, int gridx, int gridy, int minpxdist)
       : TrackBase(cameras, numfeats, numaruco, stereo, histmethod), threshold(fast_threshold), grid_x(gridx), grid_y(gridy),
-        min_px_dist(minpxdist) {}
+        min_px_dist(minpxdist), ORBDescriptor(new AMCVIO::ORBdescriptor) {}
 
   /**
    * @brief Process a new image
@@ -142,6 +143,8 @@ protected:
   // How many pyramid levels to track
   int pyr_levels = 5;
   cv::Size win_size = cv::Size(15, 15);
+
+  std::shared_ptr<AMCVIO::ORBdescriptor> ORBDescriptor;
 
   // Last set of image pyramids
   std::map<size_t, std::vector<cv::Mat>> img_pyramid_last;

@@ -7,11 +7,7 @@
 
 #include <iostream>
 
-using namespace std;
-
 namespace AMCVIO {
-
-const int ORBdescriptor::HARRIS_BLOCK_SIZE = 9;
 
 const float ORBdescriptor::factorPI = (float)(CV_PI / 180.f);
 
@@ -274,27 +270,12 @@ static int bit_pattern_31_[256 * 4] = {
     -1,  -6,  0,   -11 /*mean (0.127148), correlation (0.547401)*/
 };
 
-ORBdescriptor::ORBdescriptor(const cv::Mat &_image, float _scaleFactor, int _nlevels, int _edgeThreshold, int _patchSize)
-    : scaleFactor(_scaleFactor), nlevels(_nlevels), edgeThreshold(_edgeThreshold), patchSize(_patchSize) {
+ORBdescriptor::ORBdescriptor(int _edgeThreshold, int _patchSize) : edgeThreshold(_edgeThreshold), patchSize(_patchSize) {
   halfPatchSize = patchSize / 2;
-
-  // initialize @mvScaleFactor and @mvInvScaleFactor
-  mvScaleFactor.resize(nlevels);
-  mvInvScaleFactor.resize(nlevels);
-  mvScaleFactor[0] = 1.0f;
-  for (int i = 1; i < nlevels; i++)
-    mvScaleFactor[i] = mvScaleFactor[i - 1] * scaleFactor;
-  for (int i = 0; i < nlevels; i++)
-    mvInvScaleFactor[i] = 1.0f / mvScaleFactor[i];
 
   // initialize @pattern
   const int npoints = 512;
-  cv::Point patternbuf[npoints];
   const cv::Point *pattern0 = (const cv::Point *)bit_pattern_31_;
-  if (patchSize != 31) {
-    pattern0 = patternbuf;
-    makeRandomPattern(patchSize, patternbuf, npoints);
-  }
   std::copy(pattern0, pattern0 + npoints, std::back_inserter(pattern));
 
   // initialize @umax
@@ -313,165 +294,118 @@ ORBdescriptor::ORBdescriptor(const cv::Mat &_image, float _scaleFactor, int _nle
     umax[v] = v0;
     ++v0;
   }
-
-  // initialize some necessary setup
-  initializeLayerAndPyramid(_image);
 }
 
 void ORBdescriptor::computeOrbDescriptor(const cv::KeyPoint &kpt, uchar *desc) {
-  int step = (int)mBluredImagePyramid.step;
+  int step = (int)mBluredImage.step;
 
-  const cv::Rect &layer = mvLayerInfo[kpt.octave];
-  float scale = 1.f / mvLayerScale[kpt.octave];
   float angle = kpt.angle;
-
   angle *= factorPI;
   float a = (float)cos(angle), b = (float)sin(angle);
 
-  const uchar *center = &mBluredImagePyramid.at<uchar>(cvRound(kpt.pt.y * scale) + layer.y, cvRound(kpt.pt.x * scale) + layer.x);
-  float x, y;
-  int ix, iy;
+  const uchar *center = &mBluredImage.at<uchar>(kpt.pt.y + halfPatchSize, kpt.pt.x + halfPatchSize);
+
   const cv::Point *pattern_ = &pattern[0];
 
-#define GET_VALUE(idx)                                                                                                                     \
-  (x = pattern_[idx].x * a - pattern_[idx].y * b, y = pattern_[idx].x * b + pattern_[idx].y * a, ix = cvRound(x), iy = cvRound(y),         \
-   *(center + iy * step + ix))
+  float x, y;
+  int ix, iy;
+  auto get_value = [&](int idx) -> int {
+    x = pattern_[idx].x * a - pattern_[idx].y * b;
+    y = pattern_[idx].x * b + pattern_[idx].y * a;
+    ix = cvRound(x);
+    iy = cvRound(y);
+    return *(center + iy * step + ix);
+  };
 
   for (int i = 0; i < 32; ++i, pattern_ += 16) {
     int t0, t1, val;
-    t0 = GET_VALUE(0);
-    t1 = GET_VALUE(1);
+    t0 = get_value(0);
+    t1 = get_value(1);
     val = t0 < t1;
-    t0 = GET_VALUE(2);
-    t1 = GET_VALUE(3);
+    t0 = get_value(2);
+    t1 = get_value(3);
     val |= (t0 < t1) << 1;
-    t0 = GET_VALUE(4);
-    t1 = GET_VALUE(5);
+    t0 = get_value(4);
+    t1 = get_value(5);
     val |= (t0 < t1) << 2;
-    t0 = GET_VALUE(6);
-    t1 = GET_VALUE(7);
+    t0 = get_value(6);
+    t1 = get_value(7);
     val |= (t0 < t1) << 3;
-    t0 = GET_VALUE(8);
-    t1 = GET_VALUE(9);
+    t0 = get_value(8);
+    t1 = get_value(9);
     val |= (t0 < t1) << 4;
-    t0 = GET_VALUE(10);
-    t1 = GET_VALUE(11);
+    t0 = get_value(10);
+    t1 = get_value(11);
     val |= (t0 < t1) << 5;
-    t0 = GET_VALUE(12);
-    t1 = GET_VALUE(13);
+    t0 = get_value(12);
+    t1 = get_value(13);
     val |= (t0 < t1) << 6;
-    t0 = GET_VALUE(14);
-    t1 = GET_VALUE(15);
+    t0 = get_value(14);
+    t1 = get_value(15);
     val |= (t0 < t1) << 7;
-
     desc[i] = (uchar)val;
   }
-
-#undef GET_VALUE
 }
 
-bool ORBdescriptor::computeDescriptors(const vector<cv::Point2f> &pts, const vector<int> &levels, cv::Mat &descriptors) {
-  // return false if @mvLayerInfo, @mImagePyramid and @mBluredImagePyramid haven't been initialized
-  if (0 == mvLayerInfo.size() || 0 == mvLayerScale.size() || mImagePyramid.empty() || mBluredImagePyramid.empty()) {
-    cout << "In ORBdescriptor::computeDescriptors(): Should have call ORBdescriptor::initializeLayerAndPyramid before calling this !"
-         << endl;
+bool ORBdescriptor::computeDescriptors(const cv::Mat &image, const std::vector<cv::Point2f> &pts, cv::Mat &descriptors) {
+
+  // initialize some necessary setup
+  initializeIamge(image);
+
+  if (mExpandedImage.empty() || mBluredImage.empty()) {
     return false;
   }
 
   // construct keypoint based on scaled pts and calculated angles
-  vector<cv::KeyPoint> keypoints;
+  std::vector<cv::KeyPoint> keypoints;
   for (size_t j = 0; j < pts.size(); ++j) {
     cv::KeyPoint kp;
     kp.pt = pts[j];
-    kp.octave = levels[j];
-
+    kp.octave = 0;
     // calculate angles
     kp.angle = IC_Angle(kp.octave, kp.pt);
-
     keypoints.push_back(kp);
   }
 
   // compute descriptors
   descriptors = cv::Mat::zeros((int)keypoints.size(), 32, CV_8UC1);
-  for (size_t i = 0; i < keypoints.size(); i++)
-    computeOrbDescriptor(keypoints[i], descriptors.ptr<uchar>(i));
-
+  for (size_t i = 0; i < keypoints.size(); i++) {
+    if (pts.at(i).x >= 0 && pts.at(i).y >= 0 && (int)pts.at(i).x < image.cols && (int)pts.at(i).y < image.rows) {
+      computeOrbDescriptor(keypoints[i], descriptors.ptr<uchar>(i));
+    }
+  }
   return true;
 }
 
-void ORBdescriptor::initializeLayerAndPyramid(const cv::Mat &image) {
+void ORBdescriptor::initializeIamge(const cv::Mat &image) {
   // some useful setup
   int descPatchSize = cvCeil(halfPatchSize * sqrt(2.0));
-  int border = std::max(edgeThreshold, std::max(descPatchSize, HARRIS_BLOCK_SIZE / 2)) + 1;
-  int level_dy = image.rows + border * 2;
-  cv::Point level_ofs(0, 0);
-  cv::Size bufSize((cvRound(image.cols * mvInvScaleFactor[0]) + border * 2 + 15) & -16, 0);
+  int border = std::max(edgeThreshold, descPatchSize);
 
-  // initialize @mvLayerInfo
-  mvLayerInfo.resize(nlevels);
-  mvLayerScale.resize(nlevels);
-  for (int level = 0; level < nlevels; level++) {
-    float invscale = mvInvScaleFactor[level];
-    mvLayerScale[level] = mvScaleFactor[level];
-    cv::Size sz(cvRound(image.cols * invscale), cvRound(image.rows * invscale));
-    cv::Size wholeSize(sz.width + border * 2, sz.height + border * 2);
-    if (level_ofs.x + wholeSize.width > bufSize.width) {
-      level_ofs = cv::Point(0, level_ofs.y + level_dy);
-      level_dy = wholeSize.height;
-    }
-
-    cv::Rect linfo(level_ofs.x + border, level_ofs.y + border, sz.width, sz.height);
-    mvLayerInfo[level] = linfo;
-    level_ofs.x += wholeSize.width;
-  }
-  bufSize.height = level_ofs.y + level_dy;
+  cv::Size wholeSize(image.cols + border * 2, image.rows + border * 2);
 
   // initialize @mImagePyramid
-  if (!mImagePyramid.empty())
-    mImagePyramid.release();
-  mImagePyramid.create(bufSize, CV_8U);
-  cv::Mat prevImg = image;
-  for (int level = 0; level < nlevels; ++level) {
-    cv::Rect linfo = mvLayerInfo[level];
-    cv::Size sz(linfo.width, linfo.height);
-    cv::Size wholeSize(sz.width + border * 2, sz.height + border * 2);
-    cv::Rect wholeLinfo = cv::Rect(linfo.x - border, linfo.y - border, wholeSize.width, wholeSize.height);
-    cv::Mat extImg = mImagePyramid(wholeLinfo);
-    cv::Mat currImg = extImg(cv::Rect(border, border, sz.width, sz.height));
+  if (!mExpandedImage.empty())
+    mExpandedImage.release();
 
-    // Compute the resized image
-    if (level != 0) {
-      resize(prevImg, currImg, sz, 0, 0, cv::INTER_LINEAR);
+  cv::Mat extImg(wholeSize, image.type());
+  mExpandedImage = extImg(cv::Rect(border, border, image.cols, image.rows));
 
-      copyMakeBorder(currImg, extImg, border, border, border, border, cv::BORDER_REFLECT_101 + cv::BORDER_ISOLATED);
-    } else {
-      copyMakeBorder(image, extImg, border, border, border, border, cv::BORDER_REFLECT_101);
-    }
-    if (level > 0)
-      prevImg = currImg;
-  }
+  copyMakeBorder(image, extImg, border, border, border, border, cv::BORDER_REFLECT_101);
 
   // initialize @mBluredImagePyramid
   // by Gaussian blur specific area of @mImagePyramid
-  if (!mBluredImagePyramid.empty())
-    mBluredImagePyramid.release();
-  mBluredImagePyramid = mImagePyramid.clone();
-  for (int level = 0; level < nlevels; ++level) {
-    // preprocess the resized image
-    cv::Mat workingMat = mBluredImagePyramid(mvLayerInfo[level]);
-
-    // boxFilter(working_mat, working_mat, working_mat.depth(), Size(5,5), Point(-1,-1), true, BORDER_REFLECT_101);
-    GaussianBlur(workingMat, workingMat, cv::Size(7, 7), 2, 2, cv::BORDER_REFLECT_101);
-  }
+  if (!mBluredImage.empty())
+    mBluredImage.release();
+  mBluredImage = mExpandedImage.clone();
+  // preprocess the resized image
+  GaussianBlur(mBluredImage, mBluredImage, cv::Size(7, 7), 2, 2, cv::BORDER_REFLECT_101);
 }
 
 float ORBdescriptor::IC_Angle(const int &level, const cv::Point2f &pt) {
-  int step = (int)mImagePyramid.step1();
-  const cv::Rect &layer = mvLayerInfo[level];
+  int step = (int)mExpandedImage.step1();
 
-  cv::Point2f pt_ = pt * mvInvScaleFactor[level];
-
-  const uchar *center = &mImagePyramid.at<uchar>(cvRound(pt_.y) + layer.y, cvRound(pt_.x) + layer.x);
+  const uchar *center = &mExpandedImage.at<uchar>(pt.y + halfPatchSize, pt.x + halfPatchSize);
 
   int m_01 = 0, m_10 = 0;
 
@@ -493,15 +427,6 @@ float ORBdescriptor::IC_Angle(const int &level, const cv::Point2f &pt) {
   }
 
   return cv::fastAtan2((float)m_01, (float)m_10);
-}
-
-void ORBdescriptor::makeRandomPattern(int patchSize, cv::Point *pattern_, int npoints) {
-  cv::RNG rng(0x34985739); // we always start with a fixed seed,
-  // to make patterns the same on each run
-  for (int i = 0; i < npoints; i++) {
-    pattern_[i].x = rng.uniform(-patchSize / 2, patchSize / 2 + 1);
-    pattern_[i].y = rng.uniform(-patchSize / 2, patchSize / 2 + 1);
-  }
 }
 
 } // namespace AMCVIO

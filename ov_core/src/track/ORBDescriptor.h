@@ -1,33 +1,20 @@
 #ifndef LKTTRACKER_ORBDESCRIPTOR_H
 #define LKTTRACKER_ORBDESCRIPTOR_H
 
+// based on ORB_SLAM2::ORBextractor
+
 #include <opencv2/opencv.hpp>
 #include <vector>
 
-using namespace std;
-
 namespace AMCVIO {
-
-class ORBdescriptor // based on ORB_SLAM2::ORBextractor
-{
+class ORBdescriptor {
 public:
-  ORBdescriptor(const cv::Mat &_image, float _scaleFactor, int _nlevels, int _edgeThreshold = 31, int _patchSize = 31);
+  ORBdescriptor(int _edgeThreshold = 19, int _patchSize = 31);
 
   ~ORBdescriptor() {}
 
-  // @INPUTs:
-  //      @pts: cv::Point object of key points in source image, i.e. image at level 0
-  //      @levels: level of @image in pyramid
-  // @OUTPUTs
-  //      @descriptors: each row store the descriptor of corresponding key point
-  // @BRIEF:
-  //      This function calculate the descriptors of keypoints of same level.
-  //      Should be called after calling function initializeLayerAndPyramid().
-  bool computeDescriptors(const vector<cv::Point2f> &pts, const vector<int> &levels, cv::Mat &descriptors);
+  bool computeDescriptors(const cv::Mat &image, const std::vector<cv::Point2f> &pts, cv::Mat &descriptors);
 
-  // copy from ORBmatcher.cc, below is original comment
-  // Bit set count operation from
-  // http://graphics.stanford.edu/~seander/bithacks.html#CountBitsSetParallel
   static int computeDescriptorDistance(const cv::Mat &a, const cv::Mat &b) {
     const int *pa = a.ptr<int32_t>();
     const int *pb = b.ptr<int32_t>();
@@ -47,34 +34,22 @@ public:
   static const float factorPI;
 
 private:
-  static const int HARRIS_BLOCK_SIZE;
-
-  double scaleFactor;
-  int nlevels;
-
   int edgeThreshold;
   int patchSize;
   int halfPatchSize;
 
-  vector<cv::Point> pattern;
-  vector<int> umax;
+  std::vector<cv::Point> pattern;
+  std::vector<int> umax;
 
-  vector<float> mvScaleFactor;
-  vector<float> mvInvScaleFactor;
-  vector<cv::Rect> mvLayerInfo;
-  vector<float> mvLayerScale;
-  cv::Mat mImagePyramid;
-  cv::Mat mBluredImagePyramid;
+  cv::Mat mExpandedImage;
+  cv::Mat mBluredImage;
 
 private:
   // compute descriptor of a key point and save it into @desc
   void computeOrbDescriptor(const cv::KeyPoint &kpt, uchar *desc);
 
-  // copy from opencv/orb.cpp
-  void makeRandomPattern(int patchSize, cv::Point *pattern_, int npoints);
-
   // initialize layer information and image of pyramid
-  void initializeLayerAndPyramid(const cv::Mat &image);
+  void initializeIamge(const cv::Mat &image);
 
 public:
   // calculate Angle for an ordinary point

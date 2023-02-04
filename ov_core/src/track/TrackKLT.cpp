@@ -872,11 +872,10 @@ void TrackKLT::perform_matching(const std::vector<cv::Mat> &img0pyr, const std::
   double max_focallength = std::max(max_focallength_img0, max_focallength_img1);
   cv::findFundamentalMat(pts0_n, pts1_n, cv::FM_RANSAC, 2.0 / max_focallength, 0.999, mask_rsc);
 
-  AMCVIO::ORBdescriptor prevORBDescriptor(img0pyr.at(0), 1, 1);
-  AMCVIO::ORBdescriptor currORBDescriptor(img1pyr.at(0), 1, 1);
+  // TODO: Elegantly handle the previous frame descriptor
   cv::Mat prevDescriptors, currDescriptors;
-  if (!prevORBDescriptor.computeDescriptors(pts0, std::vector<int>(pts0.size(), 0), prevDescriptors) ||
-      !currORBDescriptor.computeDescriptors(pts1, std::vector<int>(pts1.size(), 0), currDescriptors)) {
+  if (!this->ORBDescriptor->computeDescriptors(img0pyr.at(0), pts0, prevDescriptors) ||
+      !this->ORBDescriptor->computeDescriptors(img1pyr.at(0), pts1, currDescriptors)) {
     PRINT_ERROR(RED "[ERROR]: error happen while compute descriptors!!!\n" RESET);
   }
 
@@ -888,66 +887,10 @@ void TrackKLT::perform_matching(const std::vector<cv::Mat> &img0pyr, const std::
     }
   }
 
-  // // for DEBUG
-  // {
-  //   std::vector<cv::KeyPoint> kpts0, kpts1;
-  //   for (size_t i = 0; i < pts0.size(); i++) {
-  //     cv::KeyPoint kpt0;
-  //     kpt0.pt = pts0[i];
-  //     kpts0.push_back(kpt0);
-  //     cv::KeyPoint kpt1;
-  //     kpt1.pt = pts1[i];
-  //     kpts1.push_back(kpt1);
-  //   }
-
-  //   std::vector<cv::DMatch> matches_klt, matches_rsc, matches_desc;
-  //   for (size_t i = 0; i < pts0.size(); i++) {
-  //     cv::DMatch match(i, i, 0.0);
-  //     if (mask_klt.at(i))
-  //       matches_klt.push_back(match);
-  //     if (mask_klt.at(i)&&mask_rsc.at(i))
-  //       matches_rsc.push_back(match);
-  //     if (mask_klt.at(i)&&mask_desc.at(i))
-  //       matches_desc.push_back(match);
-  //   }
-
-  //   cv::Mat img_klt;
-  //   cv::Mat img_rsc;
-  //   cv::Mat img_desc;
-  //   cv::drawMatches(img0pyr.at(0), kpts0, img1pyr.at(0), kpts1, matches_klt, img_klt, cv::Scalar(0, 255, 0), cv::Scalar(0, 0, 255));
-  //   cv::drawMatches(img0pyr.at(0), kpts0, img1pyr.at(0), kpts1, matches_rsc, img_rsc, cv::Scalar(0, 255, 0), cv::Scalar(0, 0, 255));
-  //   cv::drawMatches(img0pyr.at(0), kpts0, img1pyr.at(0), kpts1, matches_desc, img_desc, cv::Scalar(0, 255, 0), cv::Scalar(0, 0, 255));
-
-  //   for (size_t i = 0; i < pts0.size(); i++) {
-  //     if (pts1.at(i).x < 0 || pts1.at(i).y < 0 || (int)pts1.at(i).x >= img0pyr.at(0).cols || (int)pts1.at(i).y >= img0pyr.at(0).rows) {
-  //       continue;
-  //     }
-
-  //     cv::Point2f line_end = pts1.at(i);
-  //     line_end.x += img0pyr.at(0).cols;
-
-  //     if (!mask_rsc[i]) {
-  //       cv::line(img_rsc, pts0.at(i), line_end, cv::Scalar(0, 0, 255), 2, cv::LINE_AA);
-  //     }
-  //     if (!mask_desc[i]) {
-  //       cv::line(img_desc, pts0.at(i), line_end, cv::Scalar(255, 0, 255), 2, cv::LINE_AA);
-  //       // int dis = AMCVIO::ORBdescriptor::computeDescriptorDistance(prevDescriptors.row(i), currDescriptors.row(i));
-  //       // cv::putText(img_desc, std::to_string(dis), (pts0.at(i) + line_end) / 2, cv::FONT_HERSHEY_COMPLEX_SMALL, 1, cv::Scalar(255, 0,
-  //       // 255),
-  //       //             1);
-  //     }
-  //   }
-
-  //   static int frame_count = 0;
-  //   cv::imwrite("/home/lutao/Desktop/debug/" + std::to_string(frame_count) + "a-klt.jpg", img_klt);
-  //   cv::imwrite("/home/lutao/Desktop/debug/" + std::to_string(frame_count) + "b-rsc.jpg", img_rsc);
-  //   cv::imwrite("/home/lutao/Desktop/debug/" + std::to_string(frame_count) + "c-desc.jpg", img_desc);
-  //   frame_count++;
-  // }
-
   // Loop through and record only ones that are valid
   for (size_t i = 0; i < mask_klt.size(); i++) {
-    auto mask = (uchar)((i < mask_klt.size() && mask_klt[i] && i < mask_rsc.size() && mask_rsc[i]) ? 1 : 0);
+    auto mask =
+        (uchar)((i < mask_klt.size() && mask_klt[i] && i < mask_rsc.size() && mask_rsc[i] && i < mask_desc.size() && mask_desc[i]) ? 1 : 0);
     mask_out.push_back(mask);
   }
 
@@ -955,5 +898,61 @@ void TrackKLT::perform_matching(const std::vector<cv::Mat> &img0pyr, const std::
   for (size_t i = 0; i < pts0.size(); i++) {
     kpts0.at(i).pt = pts0.at(i);
     kpts1.at(i).pt = pts1.at(i);
+  }
+
+  // for DEBUG
+  if (false) {
+    std::vector<cv::KeyPoint> kpts0, kpts1;
+    for (size_t i = 0; i < pts0.size(); i++) {
+      cv::KeyPoint kpt0;
+      kpt0.pt = pts0[i];
+      kpts0.push_back(kpt0);
+      cv::KeyPoint kpt1;
+      kpt1.pt = pts1[i];
+      kpts1.push_back(kpt1);
+    }
+
+    std::vector<cv::DMatch> matches_klt, matches_rsc, matches_desc;
+    for (size_t i = 0; i < pts0.size(); i++) {
+      cv::DMatch match(i, i, 0.0);
+      if (mask_klt.at(i))
+        matches_klt.push_back(match);
+      if (mask_klt.at(i) && mask_rsc.at(i))
+        matches_rsc.push_back(match);
+      if (mask_klt.at(i) && mask_desc.at(i))
+        matches_desc.push_back(match);
+    }
+
+    cv::Mat img_klt;
+    cv::Mat img_rsc;
+    cv::Mat img_desc;
+    cv::drawMatches(img0pyr.at(0), kpts0, img1pyr.at(0), kpts1, matches_klt, img_klt, cv::Scalar(0, 255, 0), cv::Scalar(0, 0, 255));
+    cv::drawMatches(img0pyr.at(0), kpts0, img1pyr.at(0), kpts1, matches_rsc, img_rsc, cv::Scalar(0, 255, 0), cv::Scalar(0, 0, 255));
+    cv::drawMatches(img0pyr.at(0), kpts0, img1pyr.at(0), kpts1, matches_desc, img_desc, cv::Scalar(0, 255, 0), cv::Scalar(0, 0, 255));
+
+    for (size_t i = 0; i < pts0.size(); i++) {
+      if (pts1.at(i).x < 0 || pts1.at(i).y < 0 || (int)pts1.at(i).x >= img0pyr.at(0).cols || (int)pts1.at(i).y >= img0pyr.at(0).rows) {
+        continue;
+      }
+
+      cv::Point2f line_end = pts1.at(i);
+      line_end.x += img0pyr.at(0).cols;
+
+      if (!mask_rsc[i]) {
+        cv::line(img_rsc, pts0.at(i), line_end, cv::Scalar(0, 0, 255), 2, cv::LINE_AA);
+      }
+      if (!mask_desc[i]) {
+        cv::line(img_desc, pts0.at(i), line_end, cv::Scalar(255, 0, 255), 2, cv::LINE_AA);
+        int dis = AMCVIO::ORBdescriptor::computeDescriptorDistance(prevDescriptors.row(i), currDescriptors.row(i));
+        cv::putText(img_desc, std::to_string(dis), (pts0.at(i) + line_end) / 2, cv::FONT_HERSHEY_COMPLEX_SMALL, 1, cv::Scalar(255, 0, 255),
+                    1);
+      }
+    }
+
+    static int frame_count = 0;
+    cv::imwrite("/home/lutao/Desktop/debug/" + std::to_string(frame_count) + "a-klt.jpg", img_klt);
+    cv::imwrite("/home/lutao/Desktop/debug/" + std::to_string(frame_count) + "b-rsc.jpg", img_rsc);
+    cv::imwrite("/home/lutao/Desktop/debug/" + std::to_string(frame_count) + "c-desc.jpg", img_desc);
+    frame_count++;
   }
 }
