@@ -48,6 +48,7 @@ list(APPEND LIBRARY_SOURCES
         src/track/TrackBase.cpp
         src/track/TrackAruco.cpp
         src/track/TrackDescriptor.cpp
+        src/track/ORBDescriptor.cpp
         src/track/TrackKLT.cpp
         src/track/TrackSIM.cpp
         src/types/Landmark.cpp
